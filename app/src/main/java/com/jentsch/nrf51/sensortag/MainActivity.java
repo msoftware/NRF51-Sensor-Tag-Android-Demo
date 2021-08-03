@@ -317,6 +317,8 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
                 Toast.makeText(this, "Location permissions already granted", Toast.LENGTH_SHORT).show();
                 continueAfterPermissionGranted();
             }
+        } else {
+            continueAfterPermissionGranted();
         }
 
         Log.d(TAG, "onResume");
