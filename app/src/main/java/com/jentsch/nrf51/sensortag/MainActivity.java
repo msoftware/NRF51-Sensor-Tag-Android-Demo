@@ -1,5 +1,8 @@
 package com.jentsch.nrf51.sensortag;
 
+import static com.jentsch.nrf51.sensortag.UartService.EXTRA_RSSI;
+import static com.jentsch.nrf51.sensortag.UartService.EXTRA_STATUS;
+
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -39,6 +42,7 @@ import android.widget.Toast;
 
 import com.jentsch.nrf51.sensortag.view.SensorBarView;
 import com.jentsch.nrf51.sensortag.view.SpiderView;
+import com.jentsch.nrf51.sensortag.view.LineChartView;
 
 public class MainActivity extends Activity implements RadioGroup.OnCheckedChangeListener {
     private static final int REQUEST_SELECT_DEVICE = 1;
@@ -58,16 +62,25 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
     private Button btnConnectDisconnect;
     private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss.SSS");
     private Handler handler;
-    private SpiderView sensorView;
+    // private SpiderView sensorView;
+    private LineChartView lineChartView;
+    private long lastUpdateA;
+    private long lastUpdateG;
+    private TextView refreshRateText;
+    private TextView rssiTextView;
 
     @Override
+
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.main);
 
         handler = new Handler(Looper.getMainLooper());
-        sensorView = findViewById(R.id.spiderView);
+        // sensorView = findViewById(R.id.spiderView);
+        lineChartView = findViewById(R.id.line_chart_view);
         messageListView = findViewById(R.id.listMessage);
+        refreshRateText = findViewById(R.id.refreshRate);
+        rssiTextView = findViewById(R.id.rssiTextView);
 
         listAdapter = new ArrayAdapter<>(this, R.layout.message_detail);
         messageListView.setAdapter(listAdapter);
@@ -135,7 +148,6 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
             String action = intent.getAction();
 
             final Intent mIntent = intent;
-            //*********************//
             if (action.equals(UartService.ACTION_GATT_CONNECTED)) {
                 runOnUiThread(new Runnable() {
                     public void run() {
@@ -149,9 +161,7 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
                         enableAccelerometerAndGyro();
                     }
                 });
-            }
-
-            if (action.equals(UartService.ACTION_GATT_DISCONNECTED)) {
+            } else if (action.equals(UartService.ACTION_GATT_DISCONNECTED)) {
                 runOnUiThread(new Runnable() {
                     public void run() {
                         String currentDateTimeString = DateFormat.getTimeInstance().format(new Date());
@@ -163,50 +173,33 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
                         mService.close();
                     }
                 });
-            }
-
-            if (action.equals(UartService.ACTION_DATA_AVAILABLE)) {
+            } else if (action.equals(UartService.ACTION_DATA_AVAILABLE)) {
 
                 final byte[] txValue = intent.getByteArrayExtra(UartService.EXTRA_DATA);
                 final String uuid = intent.getStringExtra(UartService.EXTRA_UUID);
                 final long time = intent.getLongExtra(UartService.EXTRA_TIME, 0);
                 final String[] values = uuid.split("-");
-                if (values[0].equalsIgnoreCase("6e400002")) {
-                    //setAccelerationValue(txValue, time);
-                }
-                if (values[0].equalsIgnoreCase("6e400003")) {
-                    //setGyroscopeValue(txValue, time);
-                }
-
                 updateScreen(txValue, time, values[0]);
-            }
+            } else if (action.equals(UartService.RSSI_DATA_AVAILABLE)) {
 
-            if (action.equals(UartService.DEVICE_DOES_NOT_SUPPORT_UART)) {
+                int rssi = intent.getIntExtra(EXTRA_RSSI, 0);
+                int status = intent.getIntExtra(EXTRA_STATUS, -1);
+                final long time = intent.getLongExtra(UartService.EXTRA_TIME, 0);
+                updateRSSI(rssi, status, time);
+            } else if (action.equals(UartService.DEVICE_DOES_NOT_SUPPORT_UART)) {
                 showMessage("Device doesn't support UART. Disconnecting");
                 mService.disconnect();
+            } else {
+                Log.d(TAG, "Unknown Action: " + action);
             }
         }
     };
 
-    private void updateScreen(final byte[] txValue, final long time, final String value) {
+    private void updateRSSI(final int rssi, final int status, final long time) {
         runOnUiThread(new Runnable() {
             public void run() {
                 try {
-                    if (value.equalsIgnoreCase("6e400002")) {
-                        sensorView.getAxArray()[0] = UartService.getDoubleValue(txValue[0],txValue[1]);
-                        sensorView.getAxArray()[1] = UartService.getDoubleValue(txValue[2],txValue[3]);
-                        sensorView.getAxArray()[2] = UartService.getDoubleValue(txValue[4],txValue[5]);
-                        sensorView.invalidate();
-                    }
-                    if (value.equalsIgnoreCase("6e400003")) {
-                        sensorView.getGxArray()[0] = UartService.getDoubleValue(txValue[0],txValue[1]);
-                        sensorView.getGxArray()[1] = UartService.getDoubleValue(txValue[2],txValue[3]);
-                        sensorView.getGxArray()[2] = UartService.getDoubleValue(txValue[4],txValue[5]);
-                        sensorView.invalidate();
-                    }
-                    if (value.equalsIgnoreCase("6e400004")) {
-                        setPressureValue(txValue, time);
-                    }
+                    rssiTextView.setText("RSSI:" + rssi);
                 } catch (Exception e) {
                     Log.e(TAG, e.toString());
                 }
@@ -214,7 +207,55 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
         });
     }
 
+    private void updateScreen(final byte[] txValue, final long time, final String value) {
+        runOnUiThread(new Runnable() {
+            public void run() {
+                try {
+                    if (value.equalsIgnoreCase("6e400002")) {
+                        updateTime(SensorType.A);
+                        long x = UartService.getLongValue(txValue[0], txValue[1]);
+                        long y = UartService.getLongValue(txValue[2], txValue[3]);
+                        long z = UartService.getLongValue(txValue[4], txValue[5]);
+                        lineChartView.addAx(x, y, z);
+                        //sensorView.getAxArray()[0] = UartService.getDoubleValue(txValue[0],txValue[1]);
+                        //sensorView.getAxArray()[1] = UartService.getDoubleValue(txValue[2],txValue[3]);
+                        //sensorView.getAxArray()[2] = UartService.getDoubleValue(txValue[4],txValue[5]);
+                        //sensorView.invalidate();
+                    }
+                    if (value.equalsIgnoreCase("6e400003")) {
+                        long x = UartService.getLongValue(txValue[0], txValue[1]);
+                        long y = UartService.getLongValue(txValue[2], txValue[3]);
+                        long z = UartService.getLongValue(txValue[4], txValue[5]);
+                        lineChartView.addGx(x, y, z);
+                        //sensorView.getGxArray()[0] = UartService.getDoubleValue(txValue[0],txValue[1]);
+                        //sensorView.getGxArray()[1] = UartService.getDoubleValue(txValue[2],txValue[3]);
+                        //sensorView.getGxArray()[2] = UartService.getDoubleValue(txValue[4],txValue[5]);
+                        //sensorView.invalidate();
+                    }
+                    if (value.equalsIgnoreCase("6e400004")) {
+                        setPressureValue(txValue, time);
+                    }
+                    lineChartView.invalidate();
+                } catch (Exception e) {
+                    Log.e(TAG, e.toString());
+                }
+            }
+        });
+    }
 
+    private void updateTime(SensorType st) {
+        long now = System.currentTimeMillis();
+        switch (st) {
+            case A:
+                updateRefreshRate(refreshRateText, now - lastUpdateA);
+                lastUpdateA = now;
+                break;
+        }
+    }
+
+    private void updateRefreshRate(TextView refreshTextView, long l) {
+        refreshTextView.setText(l + " ms");
+    }
 
     private void setPressureValue(byte[] txValue, long time) {
         /*
@@ -259,6 +300,7 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
         intentFilter.addAction(UartService.ACTION_GATT_SERVICES_DISCOVERED);
         intentFilter.addAction(UartService.ACTION_DATA_AVAILABLE);
         intentFilter.addAction(UartService.DEVICE_DOES_NOT_SUPPORT_UART);
+        intentFilter.addAction(UartService.RSSI_DATA_AVAILABLE);
         return intentFilter;
     }
 

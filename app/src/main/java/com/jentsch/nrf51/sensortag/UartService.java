@@ -47,8 +47,14 @@ public class UartService extends Service {
             "com.nordicsemi.nrfUART.EXTRA_UUID";
     public final static String EXTRA_TIME =
             "com.nordicsemi.nrfUART.EXTRA_TIME";
+    public final static String EXTRA_RSSI =
+            "com.nordicsemi.nrfUART.EXTRA_RSSI";
+    public final static String EXTRA_STATUS =
+            "com.nordicsemi.nrfUART.EXTRA_STATUS";
     public final static String DEVICE_DOES_NOT_SUPPORT_UART =
             "com.nordicsemi.nrfUART.DEVICE_DOES_NOT_SUPPORT_UART";
+    public final static String RSSI_DATA_AVAILABLE =
+            "com.nordicsemi.nrfUART.RSSI_DATA_AVAILABLE";
     
     // public static final UUID TX_POWER_UUID = UUID.fromString("00001804-0000-1000-8000-00805f9b34fb");
     // public static final UUID TX_POWER_LEVEL_UUID = UUID.fromString("00002a07-0000-1000-8000-00805f9b34fb");
@@ -140,7 +146,14 @@ public class UartService extends Service {
         @Override
         public void onCharacteristicChanged(BluetoothGatt gatt,
                                             BluetoothGattCharacteristic characteristic) {
+            gatt.readRemoteRssi();
             broadcastUpdate(ACTION_DATA_AVAILABLE, characteristic); // MJ
+        }
+
+        @Override
+        public void onReadRemoteRssi(BluetoothGatt gatt, int rssi, int status) {
+            super.onReadRemoteRssi(gatt, rssi, status);
+            broadcastUpdate(RSSI_DATA_AVAILABLE, rssi, status);
         }
     };
 
@@ -161,10 +174,16 @@ public class UartService extends Service {
         return new String(hexChars);
     }
 
-    private void broadcastUpdate(final String action,
-                                 final BluetoothGattCharacteristic characteristic) {
+    private void broadcastUpdate(final String action, int rssi, int status) {
         final Intent intent = new Intent(action);
+        intent.putExtra(EXTRA_RSSI, rssi);
+        intent.putExtra(EXTRA_STATUS, status);
+        intent.putExtra(EXTRA_TIME, System.currentTimeMillis());
+        LocalBroadcastManager.getInstance(this).sendBroadcast(intent);
+    }
 
+    private void broadcastUpdate(final String action, final BluetoothGattCharacteristic characteristic) {
+        final Intent intent = new Intent(action);
         byte[] value = characteristic.getValue();
         intent.putExtra(EXTRA_DATA, value);
         intent.putExtra(EXTRA_UUID, characteristic.getUuid().toString());
